@@ -1,5 +1,12 @@
 var express = require('express');
+var cookieParser = require('cookie-parser')
+var csrf = require('csurf')
+var bodyParser = require('body-parser')
 var db = require('../db');
+
+// setup route middlewares
+var csrfProtection = csrf({ cookie: true })
+var parseForm = bodyParser.urlencoded({ extended: false })
 
 function fetchTodos(req, res, next) {
   db.all('SELECT * FROM todos WHERE owner_id = ?', [
@@ -15,6 +22,7 @@ function fetchTodos(req, res, next) {
         url: '/' + row.id
       }
     });
+    res.locals.csrfToken = "csrfToken";
     res.locals.todos = todos;
     res.locals.activeCount = todos.filter(function(todo) { return !todo.completed; }).length;
     res.locals.completedCount = todos.length - res.locals.activeCount;
@@ -23,26 +31,27 @@ function fetchTodos(req, res, next) {
 }
 
 var router = express.Router();
-
+router.use(cookieParser())
 /* GET home page. */
-router.get('/', function(req, res, next) {
+router.get('/', csrfProtection, function(req, res, next) {
   if (!req.user) { return res.render('home'); }
   next();
 }, fetchTodos, function(req, res, next) {
   res.locals.filter = null;
+  res.locals.csrfToken = req.csrfToken();
   res.render('index', { user: req.user });
 });
 
 router.get('/active', fetchTodos, function(req, res, next) {
   res.locals.todos = res.locals.todos.filter(function(todo) { return !todo.completed; });
   res.locals.filter = 'active';
-  res.render('index', { user: req.user });
+  res.render('index', { user: req.user});
 });
 
 router.get('/completed', fetchTodos, function(req, res, next) {
   res.locals.todos = res.locals.todos.filter(function(todo) { return todo.completed; });
   res.locals.filter = 'completed';
-  res.render('index', { user: req.user });
+  res.render('index', { user: req.user});
 });
 
 router.post('/', function(req, res, next) {
@@ -96,7 +105,7 @@ router.post('/:id(\\d+)/delete', function(req, res, next) {
   });
 });
 
-router.post('/toggle-all', function(req, res, next) {
+router.post('/toggle-all', parseForm, function(req, res, next) {
   db.run('UPDATE todos SET completed = ? WHERE owner_id = ?', [
     req.body.completed !== undefined ? 1 : null,
     req.user.id
